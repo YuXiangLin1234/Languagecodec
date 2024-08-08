@@ -1,1 +1,6 @@
-*__pycache__/
+**/__pycache__/
+results*
+*.pkl
+pretrained_models
+*.ckpt
+*.pt

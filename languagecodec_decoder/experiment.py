@@ -6,6 +6,8 @@ import torch
 import torchaudio
 import transformers
 import yaml
+import wandb
+from collections import defaultdict
 
 from languagecodec_decoder.discriminator_dac import DACDiscriminator
 
@@ -82,6 +84,8 @@ class VocosExp(pl.LightningModule):
 
         self.train_discriminator = False
         self.base_mel_coeff = self.mel_loss_coeff = mel_loss_coeff
+
+        self.validation_step_outputs = defaultdict(list)
 
     def configure_optimizers(self):
         disc_params = [
@@ -192,28 +196,34 @@ class VocosExp(pl.LightningModule):
             self.log("commit_loss", commit_loss)
 
             if self.global_step % 1000 == 0 and self.global_rank == 0:
-                self.logger.experiment.add_audio(
-                    "train/audio_in", audio_input[0].data.cpu(), self.global_step, self.hparams.sample_rate
-                )
-                self.logger.experiment.add_audio(
-                    "train/audio_pred", audio_hat[0].data.cpu(), self.global_step, self.hparams.sample_rate
-                )
+                # self.logger.experiment.add_audio(
+                #     "train/audio_in", audio_input[0].data.cpu(), self.global_step, self.hparams.sample_rate
+                # )
+                # self.logger.experiment.add_audio(
+                #     "train/audio_pred", audio_hat[0].data.cpu(), self.global_step, self.hparams.sample_rate
+                # )
+                wandb.log({"train/audio_in": wandb.Audio(audio_input[0].data.cpu(), caption="OooOoo", sample_rate=self.hparams.sample_rate)})
+                wandb.log({"train/audio_pred": wandb.Audio(audio_hat[0].data.cpu(), caption="OooOoo", sample_rate=self.hparams.sample_rate)})
+
                 with torch.no_grad():
                     mel = safe_log(self.melspec_loss.mel_spec(audio_input[0]))
                     mel_hat = safe_log(self.melspec_loss.mel_spec(audio_hat[0]))
-                self.logger.experiment.add_image(
-                    "train/mel_target",
-                    plot_spectrogram_to_numpy(mel.data.cpu().numpy()),
-                    self.global_step,
-                    dataformats="HWC",
-                )
-                self.logger.experiment.add_image(
-                    "train/mel_pred",
-                    plot_spectrogram_to_numpy(mel_hat.data.cpu().numpy()),
-                    self.global_step,
-                    dataformats="HWC",
-                )
-
+                # self.logger.experiment.add_image(
+                #     "train/mel_target",
+                #     plot_spectrogram_to_numpy(mel.data.cpu().numpy()),
+                #     self.global_step,
+                #     dataformats="HWC",
+                # )
+                images_target = wandb.Image(plot_spectrogram_to_numpy(mel.data.cpu().numpy()))
+                wandb.log({"train/mel_target": images_target})
+                # self.logger.experiment.add_image(
+                #     "train/mel_pred",
+                #     plot_spectrogram_to_numpy(mel_hat.data.cpu().numpy()),
+                #     self.global_step,
+                #     dataformats="HWC",
+                # )
+                images_hat = wandb.Image(plot_spectrogram_to_numpy(mel_hat.data.cpu().numpy()))
+                wandb.log({"train/mel_hat": images_hat})
             return loss
 
     def on_validation_epoch_start(self):
@@ -256,7 +266,7 @@ class VocosExp(pl.LightningModule):
         mel_loss = self.melspec_loss(audio_hat.unsqueeze(1), audio_input.unsqueeze(1))
         total_loss = mel_loss + (5 - utmos_score) + (5 - pesq_score) + 1000 * commit_loss
 
-        return {
+        outputs = {
             "val_loss": total_loss,
             "mel_loss": mel_loss,
             "utmos_score": utmos_score,
@@ -267,37 +277,68 @@ class VocosExp(pl.LightningModule):
             "audio_input": audio_input[0],
             "audio_pred": audio_hat[0],
         }
+        # print(self.validation_step_outputs)
+        self.validation_step_outputs['val_loss'].append(total_loss)
+        self.validation_step_outputs['mel_loss'].append(mel_loss)
+        self.validation_step_outputs['utmos_score'].append(utmos_score)
+        self.validation_step_outputs['pesq_score'].append(pesq_score)
+        self.validation_step_outputs['periodicity_loss'].append(periodicity_loss)
+        self.validation_step_outputs['pitch_loss'].append(pitch_loss)
+        self.validation_step_outputs['f1_score'].append(f1_score)
+        self.validation_step_outputs['audio_input'].append(audio_input[0])
+        self.validation_step_outputs['audio_pred'].append(audio_hat[0])
 
-    def validation_epoch_end(self, outputs):
+        return outputs
+    
+
+    def on_validation_epoch_end(self):
         if self.global_rank == 0:
-            *_, audio_in, audio_pred = outputs[0].values()
-            self.logger.experiment.add_audio(
-                "val_in", audio_in.data.cpu().numpy(), self.global_step, self.hparams.sample_rate
-            )
-            self.logger.experiment.add_audio(
-                "val_pred", audio_pred.data.cpu().numpy(), self.global_step, self.hparams.sample_rate
-            )
+            # *_, audio_in, audio_pred = outputs[0].values()
+            # print(self.validation_step_outputs["audio_input"])
+            audio_in = self.validation_step_outputs["audio_input"][0]
+            audio_pred = self.validation_step_outputs["audio_pred"][0]
+
+            # self.logger.experiment.add_audio(
+            #     "val_in", audio_in.data.cpu().numpy(), self.global_step, self.hparams.sample_rate
+            # )
+            # self.logger.experiment.add_audio(
+            #     "val_pred", audio_pred.data.cpu().numpy(), self.global_step, self.hparams.sample_rate
+            # )
+            wandb.log({"val/audio_in": wandb.Audio(audio_in.data.cpu(), caption="OooOoo", sample_rate=self.hparams.sample_rate)})
+            wandb.log({"val/audio_in": wandb.Audio(audio_pred.data.cpu(), caption="OooOoo", sample_rate=self.hparams.sample_rate)})
             mel_target = safe_log(self.melspec_loss.mel_spec(audio_in))
             mel_hat = safe_log(self.melspec_loss.mel_spec(audio_pred))
-            self.logger.experiment.add_image(
-                "val_mel_target",
-                plot_spectrogram_to_numpy(mel_target.data.cpu().numpy()),
-                self.global_step,
-                dataformats="HWC",
-            )
-            self.logger.experiment.add_image(
-                "val_mel_hat",
-                plot_spectrogram_to_numpy(mel_hat.data.cpu().numpy()),
-                self.global_step,
-                dataformats="HWC",
-            )
-        avg_loss = torch.stack([x["val_loss"] for x in outputs]).mean()
-        mel_loss = torch.stack([x["mel_loss"] for x in outputs]).mean()
-        utmos_score = torch.stack([x["utmos_score"] for x in outputs]).mean()
-        pesq_score = torch.stack([x["pesq_score"] for x in outputs]).mean()
-        periodicity_loss = np.array([x["periodicity_loss"] for x in outputs]).mean()
-        pitch_loss = np.array([x["pitch_loss"] for x in outputs]).mean()
-        f1_score = np.array([x["f1_score"] for x in outputs]).mean()
+            # self.logger.experiment.add_image(
+            #     "val_mel_target",
+            #     plot_spectrogram_to_numpy(mel_target.data.cpu().numpy()),
+            #     self.global_step,
+            #     dataformats="HWC",
+            # )
+            images_target = wandb.Image(plot_spectrogram_to_numpy(mel_target.data.cpu().numpy()))
+            wandb.log({"val/mel_target": images_target})
+            # self.logger.experiment.add_image(
+            #     "val_mel_hat",
+            #     plot_spectrogram_to_numpy(mel_hat.data.cpu().numpy()),
+            #     self.global_step,
+            #     dataformats="HWC",
+            # )
+            images_hat = wandb.Image(plot_spectrogram_to_numpy(mel_hat.data.cpu().numpy()))
+            wandb.log({"val/mel_hat": images_hat})
+        # avg_loss = torch.stack([x["val_loss"] for x in outputs]).mean()
+        # mel_loss = torch.stack([x["mel_loss"] for x in outputs]).mean()
+        # utmos_score = torch.stack([x["utmos_score"] for x in outputs]).mean()
+        # pesq_score = torch.stack([x["pesq_score"] for x in outputs]).mean()
+        # periodicity_loss = np.array([x["periodicity_loss"] for x in outputs]).mean()
+        # pitch_loss = np.array([x["pitch_loss"] for x in outputs]).mean()
+        # f1_score = np.array([x["f1_score"] for x in outputs]).mean()
+
+        avg_loss = torch.stack([x for x in self.validation_step_outputs["val_loss"]]).mean()
+        mel_loss = torch.stack([x for x in self.validation_step_outputs["mel_loss"]]).mean()
+        utmos_score = torch.stack([x for x in self.validation_step_outputs["utmos_score"]]).mean()
+        pesq_score = torch.stack([x for x in self.validation_step_outputs["pesq_score"]]).mean()
+        periodicity_loss = np.array([x for x in self.validation_step_outputs["periodicity_loss"]]).mean()
+        pitch_loss = np.array([x for x in self.validation_step_outputs["pitch_loss"]]).mean()
+        f1_score = np.array([x for x in self.validation_step_outputs["f1_score"]]).mean()
 
         self.log("val_loss", avg_loss, sync_dist=True)
         self.log("val/mel_loss", mel_loss, sync_dist=True)
@@ -306,6 +347,8 @@ class VocosExp(pl.LightningModule):
         self.log("val/periodicity_loss", periodicity_loss, sync_dist=True)
         self.log("val/pitch_loss", pitch_loss, sync_dist=True)
         self.log("val/f1_score", f1_score, sync_dist=True)
+
+        self.validation_step_outputs.clear()  # free memory
 
     @property
     def global_step(self):
@@ -402,6 +445,7 @@ class VocosEncodecExp(VocosExp):
             state_dict_hd = dict()
             state_dict_mp = dict()
             state_dict_mr = dict()
+            state_dict_dac = dict()
             for k, v in state_dict_raw.items():
                 # breakpoint()
                 if k.startswith('feature_extractor.encodec.quantizer'):
@@ -425,17 +469,25 @@ class VocosEncodecExp(VocosExp):
                     state_dict_mp[k[16:]] = v
                 if k.startswith('multiresddisc.'):
                     state_dict_mr[k[14:]] = v
+                if k.startswith('dacdiscriminator.'):
+                    state_dict_dac[k[17:]] = v
             # breakpoint()
             feature_extractor.encodec.quantizer.load_state_dict(state_dict_fa_qa, strict=True)
             feature_extractor.encodec.encoder.load_state_dict(state_dict_fa_en, strict=True)
             feature_extractor.encodec.decoder.load_state_dict(state_dict_fa_de, strict=True)
             backbone.load_state_dict(state_dict_bb, strict=True)
             head.load_state_dict(state_dict_hd, strict=True)
+
             self.feature_extractor = feature_extractor.to(self.device)
             self.backbone = backbone.to(self.device)
             self.head = head.to(self.device)
             self.multiperioddisc.load_state_dict(state_dict_mp, strict=True)
             self.multiresddisc.load_state_dict(state_dict_mr, strict=True)
+            self.dacdiscriminator.load_state_dict(state_dict_dac, strict=True)
+
+            for param in self.feature_extractor.parameters():
+                param.requires_grad = False
+            
 
     def training_step(self, *args):
         # print('-------------------train--------------------')
@@ -452,16 +504,21 @@ class VocosEncodecExp(VocosExp):
         # print('-------------------valid--------------------')
         bandwidth_id = torch.tensor([0], device=self.device)
         output = super().validation_step(*args, bandwidth_id=bandwidth_id)
+
         return output
 
-    def validation_epoch_end(self, outputs):
+    def on_validation_epoch_end(self):
         if self.global_rank == 0:
-            *_, audio_in, _ = outputs[0].values()
+            # *_, audio_in, _ = outputs[0].values()
+            audio_in = self.validation_step_outputs["audio_input"][0].unsqueeze(0).unsqueeze(0)
             # Resynthesis with encodec for reference
             self.feature_extractor.encodec.set_target_bandwidth(self.feature_extractor.bandwidths[0])
-            encodec_audio = self.feature_extractor.encodec(audio_in[None, None, :])
-            self.logger.experiment.add_audio(
-                "encodec", encodec_audio[0, 0].data.cpu().numpy(), self.global_step, self.hparams.sample_rate,
-            )
+            # encodec_audio = self.feature_extractor.encodec(audio_in[None, None, :])
+            encodec_audio = self.feature_extractor.encodec(audio_in)
+            # self.logger.experiment.add_audio(
+            #     "encodec", encodec_audio[0, 0].data.cpu().numpy(), self.global_step, self.hparams.sample_rate,
+            # )
+            wandb.log({"encodec": wandb.Audio(encodec_audio[0, 0].data.cpu().numpy(), caption="OooOoo", sample_rate=self.hparams.sample_rate)})
 
-        super().validation_epoch_end(outputs)
+
+        super().on_validation_epoch_end()

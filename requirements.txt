@@ -1,3 +1,4 @@
+# sudo apt install libsox-dev
 torch
 torchaudio
 numpy
@@ -6,3 +7,12 @@ einops
 pyyaml
 huggingface_hub
 encodec==0.1.1
+tensorboardX
+tensorboard
+matplotlib
+transformers
+soundfile
+jsonargparse[signatures]
+librosa
+torchcrepe
+pesq
