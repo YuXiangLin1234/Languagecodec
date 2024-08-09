@@ -23,9 +23,9 @@ def write_to_file(file_list, file_name):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Split files in a directory into train and test sets.")
-    parser.add_argument("--directory", type=str, default="/work/yuxiang1234/backup/ML2021_HungyiLee_Corpus", help="The directory containing files to split")
-    parser.add_argument("--train_file", type=str, default="/work/yuxiang1234/backup/ML2021_HungyiLee_Corpus/_train.txt", help="Output file for training set paths")
-    parser.add_argument("--test_file", type=str, default="/work/yuxiang1234/backup/ML2021_HungyiLee_Corpus/_test.txt", help="Output file for test set paths")
+    parser.add_argument("--directory", type=str, default="/home/yxlin/backup/cv-corpus-18.0-2024-06-14/zh-TW/clips", help="The directory containing files to split")
+    parser.add_argument("--train_file", type=str, default="/home/yxlin/backup/cv-corpus-18.0-2024-06-14/zh-TW/my_train.txt", help="Output file for training set paths")
+    parser.add_argument("--test_file", type=str, default="/home/yxlin/backup/cv-corpus-18.0-2024-06-14/zh-TW/my_test.txt", help="Output file for test set paths")
     parser.add_argument("--train_ratio", type=float, default=0.9, help="Ratio of files to use for training set")
 
     args = parser.parse_args()

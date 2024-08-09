@@ -4,18 +4,18 @@ data:
   class_path: languagecodec_decoder.dataset.VocosDataModule
   init_args:
     train_params:
-      filelist_path: /work/yuxiang1234/backup/ML2021_HungyiLee_Corpus/_train.txt
+      filelist_path: /home/yxlin/backup/cv-corpus-18.0-2024-06-14/zh-TW/my_train.txt
       sampling_rate: 24000
       num_samples: 24000
       batch_size: 32
-      num_workers: 8
+      num_workers: 16
 
     val_params:
-      filelist_path: /work/yuxiang1234/backup/ML2021_HungyiLee_Corpus/_test.txt
+      filelist_path: /home/yxlin/backup/cv-corpus-18.0-2024-06-14/zh-TW/my_test.txt
       sampling_rate: 24000
       num_samples: 24000
-      batch_size: 10
-      num_workers: 8
+      batch_size: 16
+      num_workers: 16
 
 model:
   class_path: languagecodec_decoder.experiment.VocosEncodecExp
@@ -33,8 +33,8 @@ model:
     evaluate_periodicty: true
 
     resume: true
-    resume_config: /work/yuxiang1234/Languagecodec/configs/languagecodec_mm.yaml
-    resume_model: /work/yuxiang1234/backup/languagecodec_paper.ckpt
+    resume_config: configs/languagecodec_mm.yaml
+    resume_model: /home/yxlin/Languagecodec/pretrained_models/languagecodec_paper.ckpt
 
     feature_extractor:
       class_path: languagecodec_decoder.feature_extractors.EncodecFeatures
@@ -64,7 +64,7 @@ trainer:
   logger:
     class_path: pytorch_lightning.loggers.WandbLogger
     init_args:
-      save_dir: /work/yuxiang1234/Languagecodec/results
+      save_dir: results
   callbacks:
     class_path: 'pytorch_lightning.callbacks.LearningRateMonitor
       init_args:
@@ -83,10 +83,10 @@ trainer:
   # Lightning calculates max_steps across all optimizer steps (rather than number of batches)
   # This equals to 1M steps per generator and 1M per discriminator
   # max_steps: 20000000
-  max_steps: 10000
+  max_steps: 2020
   # You might want to limit val batches when evaluating all the metrics, as they are time-consuming
   limit_val_batches: 100
   accelerator: gpu
   strategy: ddp
-  devices: [0]
+  devices: [0, 1]
   log_every_n_steps: 50

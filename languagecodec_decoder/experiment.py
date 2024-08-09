@@ -9,6 +9,10 @@ import yaml
 import wandb
 from collections import defaultdict
 
+import torchaudio
+from speechbrain.inference.speaker import EncoderClassifier
+from speechbrain.inference.ASR import EncoderDecoderASR
+
 from languagecodec_decoder.discriminator_dac import DACDiscriminator
 
 from languagecodec_decoder.discriminators import MultiPeriodDiscriminator, MultiResolutionDiscriminator
@@ -19,7 +23,7 @@ from languagecodec_decoder.loss import DiscriminatorLoss, GeneratorLoss, Feature
 from languagecodec_decoder.models import Backbone
 from languagecodec_decoder.modules import safe_log
 from languagecodec_decoder.pretrained_model import instantiate_class
-
+from adain import MyAdaIn, AdaIn2d
 
 class VocosExp(pl.LightningModule):
     # noinspection PyUnusedLocal
@@ -82,6 +86,11 @@ class VocosExp(pl.LightningModule):
         self.feat_matching_loss = FeatureMatchingLoss()
         self.melspec_loss = MelSpecReconstructionLoss(sample_rate=sample_rate)
 
+        self.speaker_embedding_extractor = EncoderClassifier.from_hparams(source="speechbrain/spkrec-ecapa-voxceleb", run_opts={"device":"cuda"})
+       
+        for params in self.speaker_embedding_extractor.parameters():
+            params.require_grad = False
+       
         self.train_discriminator = False
         self.base_mel_coeff = self.mel_loss_coeff = mel_loss_coeff
 
@@ -113,10 +122,17 @@ class VocosExp(pl.LightningModule):
             [opt_disc, opt_gen],
             [{"scheduler": scheduler_disc, "interval": "step"}, {"scheduler": scheduler_gen, "interval": "step"}],
         )
-
+    # codes(8,16,75), features(16,128,75)
+    # features
     def forward(self, audio_input, **kwargs):
         features, _, commit_loss = self.feature_extractor(audio_input, **kwargs)
         # print('1111', self.feature_extractor.state_dict()['encodec.decoder.model.3.convtr.convtr.weight_g'])
+        # print("================== features shape", features.shape)
+        speaker_embeddings = self.speaker_embedding_extractor.encode_batch(audio_input)
+        # print("================== speaker embedding shape", speaker_embeddings.shape)
+        adain = AdaIn2d(features, speaker_embeddings)
+        alpha = 1
+        features = (1 - alpha) * features + alpha * adain(features)
         x = self.backbone(features, **kwargs)
         audio_output = self.head(x)
         return audio_output, commit_loss

@@ -16,3 +16,5 @@ jsonargparse[signatures]
 librosa
 torchcrepe
 pesq
+pytorch_lightning==1.9.0
+fairseq
