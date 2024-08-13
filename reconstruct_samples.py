@@ -7,6 +7,15 @@ import yaml
 import fnmatch
 import numpy as np
 from collections import defaultdict
+import time
+from pydub import AudioSegment
+
+def get_audio_duration(file_path):
+    audio = AudioSegment.from_file(file_path)
+    duration_in_ms = len(audio)
+    duration_in_seconds = duration_in_ms / 1000.0
+    return duration_in_seconds
+
 
 import os
 os.environ['TRANSFORMERS_CACHE'] = '/work/yuxiang1234/cache'
@@ -71,16 +80,38 @@ def copy_files_without_wav(src_dir, dest_dir):
 def main(args):
 
     audio_files = find_audio_files(args.ref_path)
-    all_ckpts = ["/work/yuxiang1234/Languagecodec/results-3e-4/lightning_logs/qtzj1bap/checkpoints/epoch=9-step=10000.ckpt", "/work/yuxiang1234/backup/languagecodec_paper.ckpt"]
-    config_path = "/work/yuxiang1234/Languagecodec/configs/languagecodec_mm.yaml"
+    all_ckpts = ["/home/yxlin/Languagecodec/pretrained_models/languagecodec_paper.ckpt"]
+    config_path = "/home/yxlin/Languagecodec/configs/languagecodec_mm.yaml"
+    
+    save_dir = "/home/yxlin/backup/codec-infer/language-codec"
+    log_file = os.path.join(save_dir, "log.txt")
+    if not os.path.exists(save_dir):
+        os.makedirs(save_dir, exist_ok=True)
+    f = open(log_file, "w")
 
+    encoder_time = []
+    decoder_time = []
+    wav_time = []
+
+    audio_files  = [
+    "/home/yxlin/backup/chinese-audio-sample/_ML Lecture 1_ Regression - Demo.mp3",
+                 "/home/yxlin/backup/chinese-audio-sample/_fu-xuan.wav",
+                 "/home/yxlin/backup/chinese-audio-sample/_hook.wav",
+                 "/home/yxlin/backup/chinese-audio-sample/_old oti.wav",
+                 "/home/yxlin/backup/chinese-audio-sample/audio1.mp3",
+                 "/home/yxlin/backup/chinese-audio-sample/audio2.mp3",
+                 "/home/yxlin/backup/chinese-audio-sample/audio3.mp3"]
     reconstruct_audios = defaultdict(list)
     for model_path in all_ckpts:
         languagecodec = Vocos.from_pretrained0802(config_path, model_path)
         languagecodec = languagecodec.to(device)
         for i, source in enumerate(audio_files):
-            if "syn" in source:
-                continue
+
+            encoder_start_time = 0.0
+            decoder_start_time = 0.0
+            encoder_end_time = 0.0
+            decoder_end_time = 0.0
+
             print(f"{i} / {len(audio_files)} ", source)
             # source_audio = librosa.load(source, sr=24000)[0]
 
@@ -88,30 +119,44 @@ def main(args):
             source_audio = convert_audio(wav, sr, 24000, 1) 
             bandwidth_id = torch.tensor([0]).to(device)
             source_audio = source_audio.to(device)
+
+            encoder_start_time = time.perf_counter()
             features, discrete_code = languagecodec.encode_infer(source_audio, bandwidth_id=bandwidth_id)
+            encoder_end_time = time.perf_counter()
+
             print(features.shape)
             print(discrete_code.shape)
+
+            decoder_start_time = time.perf_counter()
             audio_out = languagecodec.decode(features, bandwidth_id=bandwidth_id) 
+            decoder_end_time = time.perf_counter()
+
             audio_out = audio_out.cpu()
             reconstruct_audios[i].append(audio_out)
-            if "ref_path" in source:
-                target_name = source.replace("ref_path", args.syn_path)
-            else: 
-                target_name = source.replace(".wav", "") + f"_syn{model_path[-10:-5]}.wav"
-
-            save_dir = target_name.replace(os.path.basename(target_name), "")
-
-            if not os.path.exists(save_dir):
-                os.makedirs(save_dir)
-                # shutil.rmtree(save_dir)
             
-            torchaudio.save(target_name, audio_out.cpu(), sample_rate=24000, encoding='PCM_S', bits_per_sample=16)
-                
-            # torchaudio.save(target_name, full_pred_wave[0].cpu(), 24000)
+            torchaudio.save(os.path.join(save_dir, os.path.basename(source)), audio_out.cpu(), sample_rate=24000, encoding='PCM_S', bits_per_sample=16)
 
-    for key in reconstruct_audios.keys():
-        print(reconstruct_audios)
-        print(key, np.mean((reconstruct_audios[key][0] - reconstruct_audios[key][1]) ** 2))
+            w = get_audio_duration(source)
+            wav_time.append(w)
+            e = encoder_end_time - encoder_start_time
+            d = decoder_end_time - decoder_start_time
+            encoder_time.append(e)
+            decoder_time.append(d)
+            # torchaudio.save(target_name, full_pred_wave[0].cpu(), 24000)
+            print(f"\rwav length: {w:.1f} s", file = f)
+            print(f"encoder: {e:.1f} s / rtf: {w:.4f} (↑)", file = f)
+            print(f"decoder: {d:.1f} s / rtf: {w/d:.4f} (↑)", file = f)       
+
+
+        print(f"encoder rtf: {sum(wav_time)/sum(encoder_time):.4f} (↑)")
+        print(f"decoder rtf: {sum(wav_time)/sum(decoder_time):.4f} (↑)")
+        print(f"encoder rtf: {sum(wav_time)/sum(encoder_time):.4f} (↑)", file = f)
+        print(f"decoder rtf: {sum(wav_time)/sum(decoder_time):.4f} (↑)", file = f)
+
+    f.close()
+    # for key in reconstruct_audios.keys():
+    #     print(reconstruct_audios)
+    #     print(key, np.mean((reconstruct_audios[key][0] - reconstruct_audios[key][1]) ** 2))
     # copy_files_without_wav(args.ref_path, args.ref_path.replace("ref_path", args.syn_path))
 
 # python3 reconstruct_superb.py --syn-path syn_path/content_zero -at zero -c
@@ -120,7 +165,7 @@ if __name__ == "__main__":
     parser.add_argument("--ckpt-path", type=str, default="")
     parser.add_argument("--config-path", type=str, default="")
     # parser.add_argument("--source", type=str, required=True)
-    parser.add_argument("--ref-path", type=str, default="/work/yuxiang1234/backup/chinese-audio-sample")
+    parser.add_argument("--ref-path", type=str, default="/home/yxlin/backup/chinese-audio-sample")
     parser.add_argument("--syn-path", type=str, default="lc_syn_path/hy-3e-4")
 
     args = parser.parse_args()

@@ -4,17 +4,17 @@ data:
   class_path: languagecodec_decoder.dataset.VocosDataModule
   init_args:
     train_params:
-      filelist_path: /work/yuxiang1234/backup/ML2021_HungyiLee_Corpus/_train.txt
+      filelist_path: /home/yxlin/backup/cv-corpus-18.0-2024-06-14/zh-TW/my_train.txt
       sampling_rate: 24000
       num_samples: 24000
-      batch_size: 32
+      batch_size: 16
       num_workers: 8
 
     val_params:
-      filelist_path: /work/yuxiang1234/backup/ML2021_HungyiLee_Corpus/_test.txt
+      filelist_path: /home/yxlin/backup/cv-corpus-18.0-2024-06-14/zh-TW/my_test.txt
       sampling_rate: 24000
       num_samples: 24000
-      batch_size: 10
+      batch_size: 8
       num_workers: 8
 
 model:
@@ -88,5 +88,5 @@ trainer:
   limit_val_batches: 100
   accelerator: gpu
   strategy: ddp
-  devices: [0]
+  devices: [0, 1]
   log_every_n_steps: 50
