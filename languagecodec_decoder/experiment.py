@@ -72,6 +72,8 @@ class VocosExp(pl.LightningModule):
         self.multiperioddisc = MultiPeriodDiscriminator()
         self.multiresddisc = MultiResolutionDiscriminator()
 
+        for param in self.feature_extractor.parameters():
+            param.requires_grad = False     
         
         self.dac = DACDiscriminator()
 

@@ -104,6 +104,29 @@ class EncodecFeatures(FeatureExtractor):
         codes = q_res.codes
         commit_loss = q_res.penalty                 # codes(8,16,75),features(16,128,75)
 
+        codes_length = codes.shape[2]
+        # indices = torch.arange(0, codes.size(2), 2)
+        # codes = codes[:, :, indices]
+        # codes = codes[::2]
+        # codes = codes.repeat_interleave(2)
+    
+
+        # quantized = self.codes_to_features(codes)
+
+        # is_even = False
+        # if codes.size(2) % 2 == 0:
+        #     is_even = True
+
+        indices = torch.arange(0, codes.size(2), 3).to(codes.device)
+        quantized = quantized[:, :, indices].repeat_interleave(3, dim=-1)
+        codes = codes[:, :, indices].repeat_interleave(3, dim=-1)
+        
+        # if not is_even:
+        #     quantized = quantized[:, :, :-1]
+        #     codes = codes[:, :, :-1]
+        quantized = quantized[:, :, :codes_length]
+        codes = codes[:, :, :codes_length]
+
         return quantized, codes, commit_loss
 
         # codes = self.get_encodec_codes(audio)
@@ -128,3 +151,15 @@ class EncodecFeatures(FeatureExtractor):
         commit_loss = q_res.penalty                 # codes(8,16,75),features(16,128,75)
 
         return quantized, codes, commit_loss
+
+    def codes_to_features(self, codes):
+        n_bins = self.encodec.quantizer.bins
+        offsets = torch.arange(0, n_bins * len(codes), n_bins, device=codes.device)
+        embeddings_idxs = codes + offsets.view(-1, 1, 1)
+
+        tmp=torch.cat([vq.codebook for vq in self.encodec.quantizer.vq.layers],dim=0)
+        # features = torch.nn.functional.embedding(embeddings_idxs, self.feature_extractor.codebook_weights).sum(dim=0)
+        features = torch.nn.functional.embedding(embeddings_idxs, tmp).sum(dim=0)
+        features = features.transpose(1, 2)
+
+        return features

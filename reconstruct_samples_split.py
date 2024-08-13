@@ -83,7 +83,7 @@ def main(args):
     all_ckpts = ["/home/yxlin/Languagecodec/pretrained_models/languagecodec_paper.ckpt"]
     config_path = "/home/yxlin/Languagecodec/configs/languagecodec_mm.yaml"
     
-    save_dir = "/home/yxlin/backup/codec-infer/language-codec-downsample2"
+    save_dir = "/home/yxlin/backup/codec-infer/language-codec-split0.1"
     log_file = os.path.join(save_dir, "log.txt")
     if not os.path.exists(save_dir):
         os.makedirs(save_dir, exist_ok=True)
@@ -118,46 +118,50 @@ def main(args):
             wav, sr = torchaudio.load(source)
             source_audio = convert_audio(wav, sr, 24000, 1) 
             bandwidth_id = torch.tensor([0]).to(device)
-            source_audio = source_audio.to(device)
-
-            encoder_start_time = time.perf_counter()
-            features, discrete_code = languagecodec.encode_infer(source_audio, bandwidth_id=bandwidth_id)
-            encoder_end_time = time.perf_counter()
-
-            # quantized = quantized[:, :, indices].repeat_interleave(2, dim=-1)
-            codes = discrete_code[:, :, ::2].repeat_interleave(2, dim=-1)
-
-            # print(features.shape)
-            # print(discrete_code.shape)
-            features = languagecodec.codes_to_features(codes)
-            # bandwidth_id = torch.tensor([0])  
-            # audio_out = languagecodec.decode(features, bandwidth_id=bandwidth_id)
-
-            decoder_start_time = time.perf_counter()
-            audio_out = languagecodec.decode(features, bandwidth_id=bandwidth_id) 
-            decoder_end_time = time.perf_counter()
-
-            audio_out = audio_out.cpu()
-            reconstruct_audios[i].append(audio_out)
             
-            torchaudio.save(os.path.join(save_dir, os.path.basename(source)), audio_out.cpu(), sample_rate=24000, encoding='PCM_S', bits_per_sample=16)
+            print(source_audio.shape)
+            audio_segments = torch.split(source_audio, 2400, dim=1)
 
-            w = get_audio_duration(source)
-            wav_time.append(w)
-            e = encoder_end_time - encoder_start_time
-            d = decoder_end_time - decoder_start_time
-            encoder_time.append(e)
-            decoder_time.append(d)
-            # torchaudio.save(target_name, full_pred_wave[0].cpu(), 24000)
-            print(f"\rwav length: {w:.1f} s", file = f)
-            print(f"encoder: {e:.1f} s / rtf: {w:.4f} (↑)", file = f)
-            print(f"decoder: {d:.1f} s / rtf: {w/d:.4f} (↑)", file = f)       
+            all_audio_out = []
+            for j, split_audio in enumerate(audio_segments):
+                print(split_audio.shape)
+                split_audio = split_audio.to(device)
+
+                # encoder_start_time = time.perf_counter()
+                features, discrete_code = languagecodec.encode_infer(split_audio, bandwidth_id=bandwidth_id)
+                # encoder_end_time = time.perf_counter()
+
+                print(features.shape)
+                print(discrete_code.shape)
+
+                decoder_start_time = time.perf_counter()
+                audio_out = languagecodec.decode(features, bandwidth_id=bandwidth_id) 
+                decoder_end_time = time.perf_counter()
+
+                audio_out = audio_out.cpu()
+                # reconstruct_audios[i].append(audio_out)
+                all_audio_out.append(audio_out)
+                torchaudio.save(os.path.join(save_dir, os.path.basename(source).replace(".wav", "") + f"-{j}.wav"),  audio_out, sample_rate=24000, encoding='PCM_S', bits_per_sample=16)
 
 
-        print(f"encoder rtf: {sum(wav_time)/sum(encoder_time):.4f} (↑)")
-        print(f"decoder rtf: {sum(wav_time)/sum(decoder_time):.4f} (↑)")
-        print(f"encoder rtf: {sum(wav_time)/sum(encoder_time):.4f} (↑)", file = f)
-        print(f"decoder rtf: {sum(wav_time)/sum(decoder_time):.4f} (↑)", file = f)
+            torchaudio.save(os.path.join(save_dir, os.path.basename(source)),  torch.cat(all_audio_out, dim=1), sample_rate=24000, encoding='PCM_S', bits_per_sample=16)
+
+                # w = get_audio_duration(source)
+                # wav_time.append(w)
+                # e = encoder_end_time - encoder_start_time
+                # d = decoder_end_time - decoder_start_time
+                # encoder_time.append(e)
+                # decoder_time.append(d)
+                # torchaudio.save(target_name, full_pred_wave[0].cpu(), 24000)
+                # print(f"\rwav length: {w:.1f} s", file = f)
+                # print(f"encoder: {e:.1f} s / rtf: {w:.4f} (↑)", file = f)
+                # print(f"decoder: {d:.1f} s / rtf: {w/d:.4f} (↑)", file = f)       
+
+
+        # print(f"encoder rtf: {sum(wav_time)/sum(encoder_time):.4f} (↑)")
+        # print(f"decoder rtf: {sum(wav_time)/sum(decoder_time):.4f} (↑)")
+        # print(f"encoder rtf: {sum(wav_time)/sum(encoder_time):.4f} (↑)", file = f)
+        # print(f"decoder rtf: {sum(wav_time)/sum(decoder_time):.4f} (↑)", file = f)
 
     f.close()
     # for key in reconstruct_audios.keys():
